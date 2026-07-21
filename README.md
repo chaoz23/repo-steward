@@ -23,9 +23,9 @@ The live GitHub audit path shells out to the GitHub CLI, so `gh` must be install
 
 ```bash
 repo-steward audit \
-  --repo chaoz23/inkcheck \
-  --repo chaoz23/loudcheck \
-  --format markdown \
+  --portfolio repos.txt \
+  --with-local-checkouts work/repos \
+  --format tracker \
   --out GITHUB_WORK.md
 ```
 
@@ -43,6 +43,7 @@ repo-steward audit --from-json portfolio.json --format markdown
 - open issues;
 - open pull requests;
 - latest default-branch workflow run;
+- optional local checkout hygiene;
 - conservative next-action recommendations.
 
 Mutation commands are deliberately not implemented in v0. They should remain human-gated:
@@ -58,7 +59,20 @@ Mutation commands are deliberately not implemented in v0. They should remain hum
 
 - `--format markdown`: a compact portfolio table and per-repo notes;
 - `--format json`: machine-readable report data;
+- `--format tracker`: a compact `GITHUB_WORK.md`-style tracker;
+- `--format console`: a thin terminal table;
 - `--out PATH`: write output to a file instead of stdout.
+
+JSON output includes `schema_version` and structured recommendation objects with:
+
+- `kind`;
+- `title`;
+- `confidence`;
+- `reason`;
+- `safe_next_command`;
+- `requires_confirmation`;
+- `github_artifact`;
+- `local_only`.
 
 Exit codes:
 
@@ -73,6 +87,7 @@ Exit codes:
 - Existing issues or PRs win over duplicate filing.
 - Local-only workspace hygiene should not become a public GitHub issue unless it reveals a reproducible repo policy gap.
 - A repo with stale PRs should usually review or close the PR before filing another issue.
+- Console/tracker output is a handoff surface, not an authorization to mutate GitHub.
 
 ## Development
 
