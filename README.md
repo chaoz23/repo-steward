@@ -53,6 +53,14 @@ Mutation commands are deliberately not implemented in v0. They should remain hum
 - `verify-pr`
 - `merge-green`
 
+`file-issues` now has a dry-run planner:
+
+```bash
+repo-steward file-issues --dry-run --from-json audit.json
+```
+
+It proposes issue titles and bodies from structured audit recommendations, suppresses duplicates from existing open issue titles, and never mutates GitHub.
+
 ## Output Contract
 
 `repo-steward audit` supports:
@@ -88,6 +96,7 @@ Exit codes:
 - Local-only workspace hygiene should not become a public GitHub issue unless it reveals a reproducible repo policy gap.
 - A repo with stale PRs should usually review or close the PR before filing another issue.
 - Console/tracker output is a handoff surface, not an authorization to mutate GitHub.
+- `file-issues` is dry-run only until a future release adds an explicit confirmation path.
 
 ## Development
 

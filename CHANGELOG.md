@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 - 2026-07-21
+
+- Add dry-run issue filing plans with `repo-steward file-issues --dry-run`.
+- Propose issue titles and bodies from structured audit recommendations.
+- Suppress local-only recommendations, existing GitHub artifacts, and duplicate open issue titles.
+- Keep GitHub mutation unavailable by default.
+
 ## 0.2.0 - 2026-07-21
 
 - Add versioned JSON output with `schema_version`.
