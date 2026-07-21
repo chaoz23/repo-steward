@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "repo-steward"
-version = "0.1.0"
+version = "0.2.0"
 description = "Safety-first GitHub portfolio maintenance harness for agents."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -28,4 +28,3 @@ repo-steward = "repo_steward.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["repo_steward*"]
-
