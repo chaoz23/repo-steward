@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 from repo_steward.cli import main
 from repo_steward.github import audit_repo
+from repo_steward.issue_plan import plan_issue_filing, render_issue_plan_json, render_issue_plan_markdown
 from repo_steward.local import inspect_checkout
-from repo_steward.model import Issue, LocalCheckout, PullRequest, RepoReport, SCHEMA_VERSION, WorkflowRun
+from repo_steward.model import Issue, LocalCheckout, PullRequest, Recommendation, RepoReport, SCHEMA_VERSION, WorkflowRun
 from repo_steward.recommend import recommend
 from repo_steward.render import render_console, render_json, render_markdown, render_tracker
 
@@ -63,6 +64,139 @@ class RepoStewardTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertIn("chaoz23/example", output.read_text(encoding="utf-8"))
+
+    def test_issue_plan_proposes_fileable_public_repo_work(self):
+        report = RepoReport(
+            name="chaoz23/example",
+            url="https://github.com/chaoz23/example",
+            open_issues=[],
+            recommendations=[
+                Recommendation(
+                    kind="public_repo_work",
+                    title="Add CI smoke test",
+                    confidence="high",
+                    reason="CI does not exercise the command agents rely on.",
+                    safe_next_command="python -m unittest",
+                )
+            ],
+        )
+
+        plan = plan_issue_filing([report])
+        data = json.loads(render_issue_plan_json(plan))
+        markdown = render_issue_plan_markdown(plan)
+
+        self.assertTrue(data["dry_run"])
+        self.assertEqual(data["proposed_issues"][0]["repo"], "chaoz23/example")
+        self.assertEqual(data["proposed_issues"][0]["title"], "Add CI smoke test")
+        self.assertIn("Acceptance criteria", data["proposed_issues"][0]["body"])
+        self.assertIn("python -m unittest", data["proposed_issues"][0]["body"])
+        self.assertIn("chaoz23/example: Add CI smoke test", markdown)
+
+    def test_issue_plan_suppresses_duplicate_open_issue_titles(self):
+        report = RepoReport(
+            name="chaoz23/example",
+            url="",
+            open_issues=[
+                Issue(7, "Add CI smoke test", "https://github.com/chaoz23/example/issues/7")
+            ],
+            recommendations=[
+                Recommendation(
+                    kind="public_repo_work",
+                    title="  add   ci smoke TEST ",
+                    confidence="high",
+                    reason="Same work is already tracked.",
+                )
+            ],
+        )
+
+        plan = plan_issue_filing([report])
+
+        self.assertEqual(plan.proposed_issues, [])
+        self.assertEqual(plan.suppressed[0].reason, "open issue with matching title already exists")
+        self.assertEqual(plan.suppressed[0].existing_artifact, "https://github.com/chaoz23/example/issues/7")
+
+    def test_issue_plan_suppresses_local_only_recommendations(self):
+        report = RepoReport(
+            name="chaoz23/example",
+            url="",
+            recommendations=[
+                Recommendation(
+                    kind="local_hygiene",
+                    title="Resolve untracked local file",
+                    confidence="high",
+                    reason="The checkout has local-only residue.",
+                    local_only=True,
+                )
+            ],
+        )
+
+        plan = plan_issue_filing([report])
+
+        self.assertEqual(plan.proposed_issues, [])
+        self.assertTrue(plan.suppressed[0].local_only)
+
+    def test_cli_file_issues_writes_dry_run_json_plan(self):
+        data = {
+            "repositories": [
+                {
+                    "name": "chaoz23/example",
+                    "url": "https://github.com/chaoz23/example",
+                    "open_issues": [],
+                    "open_prs": [],
+                    "latest_run": None,
+                    "recommendations": [
+                        {
+                            "kind": "public_repo_work",
+                            "title": "Document release flow",
+                            "confidence": "medium",
+                            "reason": "Release expectations are not documented.",
+                        }
+                    ],
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "portfolio.json"
+            output = Path(tmp) / "issue-plan.json"
+            fixture.write_text(json.dumps(data), encoding="utf-8")
+
+            code = main(
+                [
+                    "file-issues",
+                    "--dry-run",
+                    "--from-json",
+                    str(fixture),
+                    "--format",
+                    "json",
+                    "--out",
+                    str(output),
+                ]
+            )
+
+            plan = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(code, 0)
+            self.assertEqual(plan["proposed_issues"][0]["title"], "Document release flow")
+            self.assertEqual(plan["suppressed"], [])
+
+    def test_cli_file_issues_without_dry_run_is_blocked(self):
+        data = {
+            "repositories": [
+                {
+                    "name": "chaoz23/example",
+                    "url": "https://github.com/chaoz23/example",
+                    "open_issues": [],
+                    "open_prs": [],
+                    "latest_run": None,
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "portfolio.json"
+            fixture.write_text(json.dumps(data), encoding="utf-8")
+
+            code = main(["file-issues", "--from-json", str(fixture)])
+
+            self.assertEqual(code, 2)
 
     def test_json_has_schema_version_and_structured_recommendation(self):
         report = RepoReport(name="chaoz23/example", url="", open_issues=[])

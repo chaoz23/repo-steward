@@ -7,13 +7,14 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 from .github import audit_repos
+from .issue_plan import plan_issue_filing, render_issue_plan_json, render_issue_plan_markdown
 from .local import inspect_checkouts_by_repo
 from .model import RepoReport
 from .recommend import recommend
 from .render import render_console, render_json, render_markdown, render_tracker
 
 
-MUTATION_COMMANDS = {"file-issues", "open-pr", "verify-pr", "merge-green"}
+MUTATION_COMMANDS = {"open-pr", "verify-pr", "merge-green"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +34,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     audit.add_argument("--format", choices=["markdown", "json", "tracker", "console"], default="markdown")
     audit.add_argument("--out", help="Write report to this path instead of stdout.")
+
+    file_issues = subparsers.add_parser(
+        "file-issues",
+        help="Plan issue filing from audit output. Only --dry-run is supported.",
+    )
+    file_issues.add_argument("--from-json", required=True, help="Load audit JSON produced by repo-steward.")
+    file_issues.add_argument("--dry-run", action="store_true", help="Required; never mutates GitHub.")
+    file_issues.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    file_issues.add_argument("--out", help="Write plan to this path instead of stdout.")
 
     for command in sorted(MUTATION_COMMANDS):
         blocked = subparsers.add_parser(command, help="Reserved for future human-gated workflows.")
@@ -97,11 +107,24 @@ def run_audit(args: argparse.Namespace) -> int:
     return 1 if any(report.errors for report in reports) else 0
 
 
+def run_file_issues(args: argparse.Namespace) -> int:
+    if not args.dry_run:
+        sys.stderr.write("file-issues only supports --dry-run; no GitHub mutation was attempted\n")
+        return 2
+    reports = _load_from_json(args.from_json)
+    plan = plan_issue_filing(reports)
+    text = render_issue_plan_json(plan) if args.format == "json" else render_issue_plan_markdown(plan)
+    _write(text, args.out)
+    return 0
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.command == "audit":
         return run_audit(args)
+    if args.command == "file-issues":
+        return run_file_issues(args)
     if args.command in MUTATION_COMMANDS:
         parser.error(f"{args.command} is intentionally unavailable in v0; run audit first")
     parser.error("unknown command")
