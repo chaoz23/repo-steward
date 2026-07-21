@@ -35,6 +35,17 @@ For test fixtures or agent handoff data:
 repo-steward audit --from-json portfolio.json --format markdown
 ```
 
+For a daily read-only cron run:
+
+```bash
+repo-steward daily \
+  --portfolio repos.txt \
+  --with-local-checkouts work/repos \
+  --out-dir reports
+```
+
+That writes dated `audit.json`, `tracker.md`, `issue-plan.md`, and `summary.md` artifacts. The issue plan is still dry-run only, so the daily job can surface work without creating public GitHub issues.
+
 ## Current Scope
 
 `repo-steward audit` collects:
@@ -71,6 +82,13 @@ It proposes issue titles and bodies from structured audit recommendations, suppr
 - `--format console`: a thin terminal table;
 - `--out PATH`: write output to a file instead of stdout.
 
+`repo-steward daily` writes four dated files to `--out-dir`:
+
+- `<date>-audit.json`: machine-readable audit data;
+- `<date>-tracker.md`: `GITHUB_WORK.md`-style handoff table;
+- `<date>-issue-plan.md`: dry-run issue filing plan;
+- `<date>-summary.md`: compact counts and artifact links.
+
 JSON output includes `schema_version` and structured recommendation objects with:
 
 - `kind`;
@@ -97,6 +115,7 @@ Exit codes:
 - A repo with stale PRs should usually review or close the PR before filing another issue.
 - Console/tracker output is a handoff surface, not an authorization to mutate GitHub.
 - `file-issues` is dry-run only until a future release adds an explicit confirmation path.
+- Daily cron runs should use `daily` or `audit`; they should not invoke mutation commands.
 
 ## Development
 

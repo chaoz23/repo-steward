@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 - 2026-07-21
+
+- Add `repo-steward daily` for read-only scheduled portfolio snapshots.
+- Write dated audit JSON, tracker, dry-run issue plan, and summary artifacts to one output directory.
+- Document a safe daily cron shape that surfaces work without mutating GitHub.
+
 ## 0.3.0 - 2026-07-21
 
 - Add dry-run issue filing plans with `repo-steward file-issues --dry-run`.

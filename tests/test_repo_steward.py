@@ -198,6 +198,64 @@ class RepoStewardTests(unittest.TestCase):
 
             self.assertEqual(code, 2)
 
+    def test_cli_daily_writes_timestamped_read_only_artifacts(self):
+        data = {
+            "repositories": [
+                {
+                    "name": "chaoz23/example",
+                    "url": "https://github.com/chaoz23/example",
+                    "open_issues": [
+                        {
+                            "number": 7,
+                            "title": "Document release flow",
+                            "url": "https://github.com/chaoz23/example/issues/7",
+                        }
+                    ],
+                    "open_prs": [],
+                    "latest_run": {
+                        "workflowName": "CI",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "url": "https://example.test/run",
+                    },
+                    "recommendations": [
+                        {
+                            "kind": "public_repo_work",
+                            "title": "Document release flow",
+                            "confidence": "medium",
+                            "reason": "Release expectations are not documented.",
+                        }
+                    ],
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "portfolio.json"
+            out_dir = Path(tmp) / "daily"
+            fixture.write_text(json.dumps(data), encoding="utf-8")
+
+            code = main(
+                [
+                    "daily",
+                    "--from-json",
+                    str(fixture),
+                    "--out-dir",
+                    str(out_dir),
+                    "--date",
+                    "2026-07-21",
+                ]
+            )
+
+            self.assertEqual(code, 0)
+            audit = json.loads((out_dir / "2026-07-21-audit.json").read_text(encoding="utf-8"))
+            tracker = (out_dir / "2026-07-21-tracker.md").read_text(encoding="utf-8")
+            issue_plan = (out_dir / "2026-07-21-issue-plan.md").read_text(encoding="utf-8")
+            summary = (out_dir / "2026-07-21-summary.md").read_text(encoding="utf-8")
+            self.assertEqual(audit["repositories"][0]["name"], "chaoz23/example")
+            self.assertIn("GitHub Work Tracker", tracker)
+            self.assertIn("open issue with matching title already exists", issue_plan)
+            self.assertIn("No GitHub mutations were attempted.", summary)
+
     def test_json_has_schema_version_and_structured_recommendation(self):
         report = RepoReport(name="chaoz23/example", url="", open_issues=[])
         report.recommendations = recommend(report)
