@@ -8,7 +8,8 @@ from repo_steward.cli import main
 from repo_steward.github import audit_repo
 from repo_steward.issue_plan import plan_issue_filing, render_issue_plan_json, render_issue_plan_markdown
 from repo_steward.local import inspect_checkout
-from repo_steward.model import Issue, LocalCheckout, PullRequest, Recommendation, RepoReport, SCHEMA_VERSION, WorkflowRun
+from repo_steward.model import Issue, LocalCheckout, PullRequest, Recommendation, RepoReport, SCHEMA_VERSION, UnanchoredRef, WorkflowRun
+from repo_steward.refs import anchor_shas, candidate_heads, classify, parse_ls_remote
 from repo_steward.recommend import recommend
 from repo_steward.render import render_console, render_json, render_markdown, render_tracker
 
@@ -324,6 +325,129 @@ class RepoStewardTests(unittest.TestCase):
         self.assertEqual(report.open_issues[0].title, "Fix docs")
         self.assertTrue(report.open_prs[0].is_draft)
         self.assertEqual(report.latest_run.conclusion, "success")
+
+
+class RefProvenanceGateTests(unittest.TestCase):
+    """The predicate that would have caught the 2026-10-20 near-miss.
+
+    A branch is safe to delete only when GitHub holds an immutable copy of its
+    tip: the default branch, a tag, or refs/pull/N/head.
+    """
+
+    DEFAULT = "main"
+
+    def _ls_remote(self, *lines):
+        return parse_ls_remote("\n".join(lines) + "\n")
+
+    def test_parse_handles_tabs_and_blank_lines(self):
+        pairs = parse_ls_remote("aaa\trefs/heads/main\n\nbbb\trefs/tags/v1\n")
+        self.assertEqual(pairs, [("aaa", "refs/heads/main"), ("bbb", "refs/tags/v1")])
+
+    def test_pull_ref_anchors_a_branch(self):
+        # The 89 branches deleted on 2026-10-20: every tip was a PR head.
+        pairs = self._ls_remote(
+            "d00\trefs/heads/main",
+            "a02\trefs/heads/agent/release-contract-p0",
+            "a02\trefs/pull/43/head",
+        )
+        self.assertIn("a02", anchor_shas(pairs))
+        self.assertEqual(classify(pairs, self.DEFAULT), [])
+
+    def test_peeled_annotated_tag_anchors_a_branch(self):
+        # An annotated tag advertises both the tag object and the peeled commit.
+        pairs = self._ls_remote(
+            "d00\trefs/heads/main",
+            "b85\trefs/heads/benchmark/evidence",
+            "1a4\trefs/tags/inkbench-2026-08-evidence",
+            "b85\trefs/tags/inkbench-2026-08-evidence^{}",
+        )
+        self.assertEqual(classify(pairs, self.DEFAULT), [])
+
+    def test_reachable_from_default_anchors_a_branch(self):
+        pairs = self._ls_remote(
+            "d00\trefs/heads/main",
+            "c01\trefs/heads/already-merged",
+        )
+        self.assertEqual(classify(pairs, self.DEFAULT, {"c01": True}), [])
+
+    def test_branch_with_no_anchor_is_reported(self):
+        # chaoz23/inkbench codex/heresy-planted: no PR, no tag, not on main.
+        pairs = self._ls_remote(
+            "d00\trefs/heads/main",
+            "163\trefs/heads/codex/heresy-planted",
+            "9d4\trefs/pull/10/head",
+            "e03\trefs/tags/v0.3.0",
+        )
+        found = classify(pairs, self.DEFAULT, {"163": False})
+        self.assertEqual([item.branch for item in found], ["codex/heresy-planted"])
+        self.assertEqual(found[0].tip, "163")
+        self.assertIn("only copy", found[0].reason)
+
+    def test_unknown_reachability_over_reports_rather_than_under_reports(self):
+        # A failed comparison must never be read as "safe to delete".
+        pairs = self._ls_remote(
+            "d00\trefs/heads/main",
+            "xyz\trefs/heads/mystery",
+        )
+        self.assertEqual([i.branch for i in classify(pairs, self.DEFAULT)], ["mystery"])
+        self.assertEqual([i.branch for i in classify(pairs, self.DEFAULT, {"xyz": None})], ["mystery"])
+
+    def test_default_branch_is_never_a_candidate(self):
+        pairs = self._ls_remote("d00\trefs/heads/main")
+        self.assertEqual(candidate_heads(pairs, self.DEFAULT), [])
+        self.assertEqual(classify(pairs, self.DEFAULT), [])
+
+    def test_non_default_trunk_name_is_respected(self):
+        pairs = self._ls_remote("d00\trefs/heads/master", "f01\trefs/heads/side")
+        self.assertEqual([b for _, b in candidate_heads(pairs, "master")], ["side"])
+
+    def test_results_are_sorted_for_stable_reports(self):
+        pairs = self._ls_remote(
+            "d00\trefs/heads/main", "s01\trefs/heads/zeta", "s02\trefs/heads/alpha"
+        )
+        self.assertEqual([i.branch for i in classify(pairs, self.DEFAULT)], ["alpha", "zeta"])
+
+    def test_recommendation_leads_with_irreversible_risk(self):
+        report = RepoReport(
+            name="chaoz23/inkbench",
+            url="https://github.com/chaoz23/inkbench",
+            open_prs=[PullRequest(number=1, title="t", url="u")],
+            unanchored_refs=[
+                UnanchoredRef("refs/heads/codex/heresy-planted", "codex/heresy-planted", "163ecb32", "no anchor")
+            ],
+        )
+        items = recommend(report)
+        self.assertEqual(items[0].kind, "irreversible_risk")
+        self.assertTrue(items[0].requires_confirmation)
+        self.assertIn("codex/heresy-planted", items[0].title)
+
+    def test_no_unanchored_refs_produces_no_risk_recommendation(self):
+        report = RepoReport(name="chaoz23/clean", url="")
+        self.assertNotIn("irreversible_risk", [item.kind for item in recommend(report)])
+
+    def test_json_round_trip_preserves_unanchored_refs(self):
+        report = RepoReport(
+            name="chaoz23/inkbench",
+            url="",
+            unanchored_refs=[UnanchoredRef("refs/heads/x", "x", "abc123", "why")],
+        )
+        restored = RepoReport.from_dict(json.loads(render_json([report]))["repositories"][0])
+        self.assertEqual(restored.unanchored_refs[0].tip, "abc123")
+        self.assertEqual(restored.unanchored_refs[0].branch, "x")
+
+    def test_schema_without_the_field_still_loads(self):
+        self.assertEqual(RepoReport.from_dict({"name": "a/b"}).unanchored_refs, [])
+
+    def test_markdown_and_console_surface_the_count(self):
+        report = RepoReport(
+            name="chaoz23/inkbench",
+            url="",
+            unanchored_refs=[UnanchoredRef("refs/heads/x", "x", "abcdef123", "why")],
+        )
+        report.recommendations = recommend(report)
+        self.assertIn("Unanchored refs", render_markdown([report]))
+        self.assertIn("abcdef123"[:9], render_markdown([report]))
+        self.assertIn("UNANCH", render_console([report]))
 
 
 if __name__ == "__main__":

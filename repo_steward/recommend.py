@@ -19,6 +19,29 @@ def recommend(report: RepoReport) -> List[Recommendation]:
 
     items: List[Recommendation] = []
 
+    if report.unanchored_refs:
+        names = ", ".join(item.branch for item in report.unanchored_refs[:3])
+        if len(report.unanchored_refs) > 3:
+            names += f", and {len(report.unanchored_refs) - 3} more"
+        items.append(
+            Recommendation(
+                kind="irreversible_risk",
+                title=f"Do not delete {len(report.unanchored_refs)} unanchored branch(es): {names}",
+                confidence="high",
+                reason=(
+                    "These tips are reachable from no refs/pull/*/head, no tag, and not from the "
+                    "default branch, so GitHub holds no immutable copy. Deleting one destroys the "
+                    "only copy of its commits. Pin anything worth keeping to an annotated tag "
+                    "first; merge status and line counts do not establish safety."
+                ),
+                safe_next_command=(
+                    f"git ls-remote https://github.com/{report.name}.git "
+                    f"'refs/pull/*/head' 'refs/tags/*'"
+                ),
+                requires_confirmation=True,
+            )
+        )
+
     failed_run = (
         report.latest_run
         and report.latest_run.status == "completed"

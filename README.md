@@ -72,6 +72,30 @@ repo-steward file-issues --dry-run --from-json audit.json
 
 It proposes issue titles and bodies from structured audit recommendations, suppresses duplicates from existing open issue titles, and never mutates GitHub.
 
+
+### Ref-provenance gate
+
+`audit` and `daily` flag **unanchored branches**: those whose tip is reachable
+from no `refs/pull/*/head`, no tag, and not from the default branch. GitHub keeps
+a pull request's head ref forever, so a branch that ever had a PR is permanently
+recoverable even after deletion; a branch that never had one has no server-side
+backstop. Deleting an unanchored branch destroys the only copy of its commits.
+
+The check costs one `git ls-remote` per repository plus one comparison per
+candidate tip. It reads no file contents, so it cannot be misled by line counts
+or by `ahead_by`, which always reports a squash-merged branch as ahead of the
+trunk even when the trunk already holds its content.
+
+```
+repo-steward audit --repo chaoz23/inkbench --format console
+REPOSITORY        CI      PRS  ISSUES  UNANCH  NEXT
+chaoz23/inkbench  success   0       8       1  Do not delete 1 unanchored branch(es): ...
+```
+
+Flagged refs appear under `unanchored_refs` in the JSON output and raise a
+first-ranked `irreversible_risk` recommendation. The gate reports; it never
+deletes.
+
 ## Output Contract
 
 `repo-steward audit` supports:
@@ -107,6 +131,8 @@ Exit codes:
 - `2`: invalid CLI usage or blocked mutation command.
 
 ## Safety Rules
+
+- Never delete a branch the ref-provenance gate reports as unanchored; pin it to an annotated tag first.
 
 - Audit is read-only.
 - Mutations must be explicit subcommands and require confirmation.

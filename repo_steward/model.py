@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 
 @dataclass
@@ -110,6 +110,39 @@ class LocalCheckout:
 
 
 @dataclass
+class UnanchoredRef:
+    """A branch whose tip no immutable server-side ref points at.
+
+    Deleting such a branch destroys the only copy of its commits: GitHub keeps
+    ``refs/pull/N/head`` forever for any branch that ever had a pull request, so
+    a branch with no PR, no tag, and nothing on the default branch has no
+    backstop at all. See ``repo_steward.refs`` for the full rationale.
+    """
+
+    ref: str
+    branch: str
+    tip: str
+    reason: str = ""
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "UnanchoredRef":
+        return cls(
+            ref=str(data.get("ref") or ""),
+            branch=str(data.get("branch") or ""),
+            tip=str(data.get("tip") or ""),
+            reason=str(data.get("reason") or ""),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ref": self.ref,
+            "branch": self.branch,
+            "tip": self.tip,
+            "reason": self.reason,
+        }
+
+
+@dataclass
 class Recommendation:
     kind: str
     title: str
@@ -164,6 +197,7 @@ class RepoReport:
     open_prs: List[PullRequest] = field(default_factory=list)
     latest_run: Optional[WorkflowRun] = None
     local_checkout: Optional[LocalCheckout] = None
+    unanchored_refs: List[UnanchoredRef] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     recommendations: List[Recommendation] = field(default_factory=list)
 
@@ -181,6 +215,9 @@ class RepoReport:
             open_prs=[PullRequest.from_gh(item) for item in data.get("open_prs", [])],
             latest_run=WorkflowRun.from_gh(latest) if latest else None,
             local_checkout=LocalCheckout.from_dict(local) if local else None,
+            unanchored_refs=[
+                UnanchoredRef.from_dict(item) for item in data.get("unanchored_refs", [])
+            ],
             errors=[str(item) for item in data.get("errors", [])],
             recommendations=[
                 Recommendation.from_dict(item) for item in data.get("recommendations", [])
@@ -198,6 +235,7 @@ class RepoReport:
             "open_prs": [item.to_dict() for item in self.open_prs],
             "latest_run": self.latest_run.to_dict() if self.latest_run else None,
             "local_checkout": self.local_checkout.to_dict() if self.local_checkout else None,
+            "unanchored_refs": [item.to_dict() for item in self.unanchored_refs],
             "errors": list(self.errors),
             "recommendations": [item.to_dict() for item in self.recommendations],
         }

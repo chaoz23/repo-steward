@@ -6,6 +6,7 @@ from typing import Any, List
 
 from .model import Issue, PullRequest, RepoReport, WorkflowRun
 from .recommend import recommend
+from .refs import find_unanchored_refs
 
 
 class GhError(RuntimeError):
@@ -93,6 +94,7 @@ def audit_repo(name: str) -> RepoReport:
             open_issues=[Issue.from_gh(item) for item in issues],
             open_prs=[PullRequest.from_gh(item) for item in prs],
             latest_run=WorkflowRun.from_gh(runs[0]) if runs else None,
+            unanchored_refs=find_unanchored_refs(str(repo["nameWithOwner"]), default_branch),
         )
     except (GhError, json.JSONDecodeError, KeyError) as exc:
         report = RepoReport(name=name, url="", errors=[str(exc)])

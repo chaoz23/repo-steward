@@ -18,8 +18,8 @@ def render_markdown(reports: Iterable[RepoReport]) -> str:
     lines: List[str] = [
         "# GitHub Portfolio Stewardship Report",
         "",
-        "| Repository | Open Issues | Open PRs | Latest Default-Branch CI | Next Action |",
-        "| --- | ---: | ---: | --- | --- |",
+        "| Repository | Open Issues | Open PRs | Unanchored | Latest Default-Branch CI | Next Action |",
+        "| --- | ---: | ---: | ---: | --- | --- |",
     ]
     for report in repo_list:
         ci = "none"
@@ -32,7 +32,8 @@ def render_markdown(reports: Iterable[RepoReport]) -> str:
         next_action = report.recommendations[0].title if report.recommendations else ""
         name = f"[{report.name}]({report.url})" if report.url else report.name
         lines.append(
-            f"| {name} | {len(report.open_issues)} | {len(report.open_prs)} | {ci} | {next_action} |"
+            f"| {name} | {len(report.open_issues)} | {len(report.open_prs)} | "
+            f"{len(report.unanchored_refs)} | {ci} | {next_action} |"
         )
 
     lines.append("")
@@ -57,6 +58,11 @@ def render_markdown(reports: Iterable[RepoReport]) -> str:
             if len(report.open_issues) > 10:
                 lines.append(f"- ...and {len(report.open_issues) - 10} more")
             lines.append("")
+        if report.unanchored_refs:
+            lines.append("Unanchored refs (deleting these destroys the only copy):")
+            for item in report.unanchored_refs:
+                lines.append(f"- `{item.branch}` @ `{item.tip[:9]}`")
+            lines.append("")
         lines.append("Recommendations:")
         for item in report.recommendations:
             label = "local" if item.local_only else item.kind
@@ -66,7 +72,7 @@ def render_markdown(reports: Iterable[RepoReport]) -> str:
 
 
 def render_console(reports: Iterable[RepoReport]) -> str:
-    lines = ["REPOSITORY                         CI                  PRS  ISSUES  NEXT"]
+    lines = ["REPOSITORY                         CI                  PRS  ISSUES  UNANCH  NEXT"]
     for report in reports:
         ci = "none"
         if report.latest_run:
@@ -76,7 +82,8 @@ def render_console(reports: Iterable[RepoReport]) -> str:
         next_action = report.recommendations[0].title if report.recommendations else ""
         lines.append(
             f"{_trim(report.name, 34):34} {_trim(ci, 19):19} "
-            f"{len(report.open_prs):>3}  {len(report.open_issues):>6}  {_trim(next_action, 60)}"
+            f"{len(report.open_prs):>3}  {len(report.open_issues):>6}  "
+            f"{len(report.unanchored_refs):>6}  {_trim(next_action, 60)}"
         )
     return "\n".join(lines).rstrip() + "\n"
 
